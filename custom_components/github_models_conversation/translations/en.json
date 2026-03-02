@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GitHub Models",
+        "description": "Enter your GitHub personal access token. It requires the **models:read** permission for fine-grained tokens. Classic tokens work without any additional scope.",
+        "data": {
+          "api_key": "GitHub Personal Access Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to GitHub Models API",
+      "invalid_auth": "Invalid GitHub personal access token",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This integration is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "GitHub Models Options",
+        "data": {
+          "prompt": "System Prompt",
+          "recommended": "Use recommended settings"
+        },
+        "data_description": {
+          "prompt": "Instructions for the AI. Supports Home Assistant templates."
+        }
+      },
+      "advanced": {
+        "title": "Advanced Options",
+        "data": {
+          "chat_model": "Model",
+          "temperature": "Temperature",
+          "top_p": "Top P",
+          "max_tokens": "Maximum Tokens"
+        },
+        "data_description": {
+          "chat_model": "The AI model to use for conversations.",
+          "temperature": "Controls randomness. Higher values make output more random.",
+          "top_p": "Alternative to temperature for controlling randomness.",
+          "max_tokens": "Maximum number of tokens in the response."
+        }
+      }
+    }
+  }
+}

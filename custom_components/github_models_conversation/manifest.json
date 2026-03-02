@@ -1,0 +1,13 @@
+{
+  "domain": "github_models_conversation",
+  "name": "GitHub Models",
+  "codeowners": ["@piitaya"],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "after_dependencies": ["assist_pipeline", "intent"],
+  "documentation": "https://github.com/piitaya/copilot-conversation",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "requirements": ["openai"],
+  "version": "1.0.0"
+}
