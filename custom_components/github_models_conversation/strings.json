@@ -19,6 +19,35 @@
     }
   },
   "config_subentries": {
+    "ai_task_data": {
+      "abort": {
+        "entry_not_loaded": "The integration is not loaded. Please ensure it is set up before adding agents.",
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+        "cannot_connect": "Failed to connect to GitHub Models API",
+        "unknown": "Unexpected error"
+      },
+      "entry_type": "AI task",
+      "initiate_flow": {
+        "user": "Add AI task"
+      },
+      "step": {
+        "init": {
+          "data": {
+            "name": "[%key:common::config_flow::data::name%]",
+            "recommended": "Recommended model settings"
+          }
+        },
+        "advanced": {
+          "title": "Advanced settings",
+          "data": {
+            "chat_model": "[%key:common::generic::model%]",
+            "temperature": "Temperature",
+            "top_p": "Top P",
+            "max_tokens": "Maximum tokens to return in response"
+          }
+        }
+      }
+    },
     "conversation": {
       "abort": {
         "entry_not_loaded": "The integration is not loaded. Please ensure it is set up before adding agents.",

@@ -1,0 +1,334 @@
+"""Base entity for GitHub Models Conversation."""
+
+from __future__ import annotations
+
+import base64
+from collections.abc import AsyncGenerator, Callable
+import json
+from mimetypes import guess_file_type
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
+import openai
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionContentPartImageParam,
+    ChatCompletionFunctionToolParam,
+    ChatCompletionMessage,
+    ChatCompletionMessageFunctionToolCallParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionUserMessageParam,
+)
+from openai.types.chat.chat_completion_message_function_tool_call_param import Function
+from openai.types.shared_params import FunctionDefinition, ResponseFormatJSONSchema
+from openai.types.shared_params.response_format_json_schema import JSONSchema
+import voluptuous as vol
+from voluptuous_openapi import convert
+
+from homeassistant.components import conversation
+from homeassistant.config_entries import ConfigSubentry
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr, llm
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.json import json_dumps
+
+from . import GitHubModelsConfigEntry
+from .const import (
+    CONF_CHAT_MODEL,
+    CONF_MAX_TOKENS,
+    CONF_TEMPERATURE,
+    CONF_TOP_P,
+    DOMAIN,
+    LOGGER,
+    RECOMMENDED_CHAT_MODEL,
+    RECOMMENDED_MAX_TOKENS,
+    RECOMMENDED_TEMPERATURE,
+    RECOMMENDED_TOP_P,
+)
+
+# Max number of back and forth with the LLM to generate a response
+MAX_TOOL_ITERATIONS = 10
+
+
+def _adjust_schema(schema: dict[str, Any]) -> None:
+    """Adjust the schema to be compatible with OpenAI API."""
+    if schema["type"] == "object":
+        schema["additionalProperties"] = False
+
+        if "properties" not in schema:
+            return
+
+        if "required" not in schema:
+            schema["required"] = []
+
+        for prop, prop_info in schema["properties"].items():
+            _adjust_schema(prop_info)
+            if prop not in schema["required"]:
+                prop_info["type"] = [prop_info["type"], "null"]
+                schema["required"].append(prop)
+
+    elif schema["type"] == "array":
+        if "items" not in schema:
+            return
+
+        _adjust_schema(schema["items"])
+
+
+def _format_structured_output(
+    name: str, schema: vol.Schema, llm_api: llm.APIInstance | None
+) -> JSONSchema:
+    """Format the schema to be compatible with OpenAI API."""
+    result: JSONSchema = {
+        "name": name,
+        "strict": True,
+    }
+    result_schema = convert(
+        schema,
+        custom_serializer=(
+            llm_api.custom_serializer if llm_api else llm.selector_serializer
+        ),
+    )
+
+    _adjust_schema(result_schema)
+
+    result["schema"] = result_schema
+    return result
+
+
+def _format_tool(
+    tool: llm.Tool,
+    custom_serializer: Callable[[Any], Any] | None,
+) -> ChatCompletionFunctionToolParam:
+    """Format tool specification."""
+    tool_spec = FunctionDefinition(
+        name=tool.name,
+        parameters=convert(tool.parameters, custom_serializer=custom_serializer),
+    )
+    if tool.description:
+        tool_spec["description"] = tool.description
+    return ChatCompletionFunctionToolParam(type="function", function=tool_spec)
+
+
+def _convert_content_to_chat_message(
+    content: conversation.Content,
+) -> ChatCompletionMessageParam | None:
+    """Convert a chat log content item to an OpenAI message param."""
+    if isinstance(content, conversation.ToolResultContent):
+        return ChatCompletionToolMessageParam(
+            role="tool",
+            tool_call_id=content.tool_call_id,
+            content=json_dumps(content.tool_result),
+        )
+
+    role: Literal["user", "assistant", "system"] = content.role
+    if role == "system" and content.content:
+        return ChatCompletionSystemMessageParam(role="system", content=content.content)
+
+    if role == "user" and content.content:
+        return ChatCompletionUserMessageParam(role="user", content=content.content)
+
+    if role == "assistant":
+        param = ChatCompletionAssistantMessageParam(
+            role="assistant",
+            content=content.content,
+        )
+        if isinstance(content, conversation.AssistantContent) and content.tool_calls:
+            param["tool_calls"] = [
+                ChatCompletionMessageFunctionToolCallParam(
+                    type="function",
+                    id=tool_call.id,
+                    function=Function(
+                        arguments=json_dumps(tool_call.tool_args),
+                        name=tool_call.tool_name,
+                    ),
+                )
+                for tool_call in content.tool_calls
+            ]
+        return param
+
+    return None
+
+
+def _decode_tool_arguments(arguments: str) -> Any:
+    """Decode tool call arguments."""
+    try:
+        return json.loads(arguments)
+    except json.JSONDecodeError as err:
+        raise HomeAssistantError(
+            f"Unexpected tool argument response: {err}"
+        ) from err
+
+
+async def _transform_response(
+    message: ChatCompletionMessage,
+) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
+    """Transform an OpenAI chat completion message to ChatLog format."""
+    data: conversation.AssistantContentDeltaDict = {
+        "role": message.role,
+        "content": message.content,
+    }
+    if message.tool_calls:
+        data["tool_calls"] = [
+            llm.ToolInput(
+                id=tool_call.id,
+                tool_name=tool_call.function.name,
+                tool_args=_decode_tool_arguments(tool_call.function.arguments),
+            )
+            for tool_call in message.tool_calls
+            if tool_call.type == "function"
+        ]
+    yield data
+
+
+async def async_prepare_files_for_prompt(
+    hass: HomeAssistant, files: list[tuple[Path, str | None]]
+) -> list[ChatCompletionContentPartImageParam]:
+    """Append files to a prompt.
+
+    Caller needs to ensure that the files are allowed.
+    """
+
+    def append_files_to_content() -> list[ChatCompletionContentPartImageParam]:
+        content: list[ChatCompletionContentPartImageParam] = []
+
+        for file_path, mime_type in files:
+            if not file_path.exists():
+                raise HomeAssistantError(f"`{file_path}` does not exist")
+
+            if mime_type is None:
+                mime_type = guess_file_type(file_path)[0]
+
+            if not mime_type or not mime_type.startswith(("image/", "application/pdf")):
+                raise HomeAssistantError(
+                    "Only images and PDF are supported by the GitHub Models API, "
+                    f"`{file_path}` is not an image file or PDF"
+                )
+
+            base64_file = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_file}"},
+                }
+            )
+
+        return content
+
+    return await hass.async_add_executor_job(append_files_to_content)
+
+
+class GitHubModelsEntity(Entity):
+    """Base entity for GitHub Models."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self, entry: GitHubModelsConfigEntry, subentry: ConfigSubentry
+    ) -> None:
+        """Initialize the entity."""
+        self._entry = entry
+        self._subentry = subentry
+        self._attr_unique_id = subentry.subentry_id
+        self._attr_device_info = dr.DeviceInfo(
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
+            manufacturer="GitHub",
+            model=subentry.data.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
+            entry_type=dr.DeviceEntryType.SERVICE,
+        )
+
+    async def _async_handle_chat_log(
+        self,
+        chat_log: conversation.ChatLog,
+        structure_name: str | None = None,
+        structure: vol.Schema | None = None,
+    ) -> None:
+        """Generate an answer for the chat log."""
+        options = self._subentry.data
+
+        tools: list[ChatCompletionFunctionToolParam] | None = None
+        if chat_log.llm_api:
+            tools = [
+                _format_tool(tool, chat_log.llm_api.custom_serializer)
+                for tool in chat_log.llm_api.tools
+            ]
+
+        model_args: dict[str, Any] = {
+            "model": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
+            "messages": [
+                m
+                for content in chat_log.content
+                if (m := _convert_content_to_chat_message(content))
+            ],
+            "temperature": options.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE),
+            "top_p": options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
+            "max_tokens": options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS),
+        }
+
+        if tools:
+            model_args["tools"] = tools
+
+        # Handle attachments by adding them to the last user message
+        last_content = chat_log.content[-1]
+        if last_content.role == "user" and last_content.attachments:
+            last_message: ChatCompletionMessageParam = model_args["messages"][-1]
+            assert last_message["role"] == "user" and isinstance(
+                last_message["content"], str
+            )
+            files = await async_prepare_files_for_prompt(
+                self.hass,
+                [(a.path, a.mime_type) for a in last_content.attachments],
+            )
+            last_message["content"] = [
+                {"type": "text", "text": last_message["content"]},
+                *files,
+            ]
+
+        if structure:
+            if TYPE_CHECKING:
+                assert structure_name is not None
+            model_args["response_format"] = ResponseFormatJSONSchema(
+                type="json_schema",
+                json_schema=_format_structured_output(
+                    structure_name, structure, chat_log.llm_api
+                ),
+            )
+
+        client: openai.AsyncOpenAI = self._entry.runtime_data
+
+        for _iteration in range(MAX_TOOL_ITERATIONS):
+            try:
+                result = await client.chat.completions.create(**model_args)
+            except openai.AuthenticationError as err:
+                LOGGER.error("Authentication error: %s", err)
+                raise HomeAssistantError(
+                    "Authentication failed. Please check your GitHub token."
+                ) from err
+            except openai.RateLimitError as err:
+                LOGGER.error("Rate limit exceeded: %s", err)
+                raise HomeAssistantError(
+                    "Rate limit exceeded. Please try again later."
+                ) from err
+            except openai.OpenAIError as err:
+                LOGGER.error("API error: %s", err)
+                raise HomeAssistantError(
+                    "An error occurred communicating with GitHub Models."
+                ) from err
+
+            result_message = result.choices[0].message
+
+            model_args["messages"].extend(
+                [
+                    msg
+                    async for content in chat_log.async_add_delta_content_stream(
+                        self.entity_id, _transform_response(result_message)
+                    )
+                    if (msg := _convert_content_to_chat_message(content))
+                ]
+            )
+
+            if not chat_log.unresponded_tool_results:
+                break

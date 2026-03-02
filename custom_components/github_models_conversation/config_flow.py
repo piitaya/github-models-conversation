@@ -37,10 +37,12 @@ from .const import (
     CONF_RECOMMENDED,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    DEFAULT_AI_TASK_NAME,
     DEFAULT_CONVERSATION_NAME,
     DOMAIN,
     GITHUB_MODELS_BASE_URL,
     LOGGER,
+    RECOMMENDED_AI_TASK_OPTIONS,
     RECOMMENDED_CHAT_MODEL,
     RECOMMENDED_CONVERSATION_OPTIONS,
     RECOMMENDED_MAX_TOKENS,
@@ -75,7 +77,10 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
         """Return subentries supported by this handler."""
-        return {"conversation": ConversationFlowHandler}
+        return {
+            "conversation": ConversationFlowHandler,
+            "ai_task_data": ConversationFlowHandler,
+        }
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -104,7 +109,13 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
                             "data": RECOMMENDED_CONVERSATION_OPTIONS,
                             "title": DEFAULT_CONVERSATION_NAME,
                             "unique_id": None,
-                        }
+                        },
+                        {
+                            "subentry_type": "ai_task_data",
+                            "data": RECOMMENDED_AI_TASK_OPTIONS,
+                            "title": DEFAULT_AI_TASK_NAME,
+                            "unique_id": None,
+                        },
                     ],
                 )
 
@@ -170,8 +181,11 @@ class ConversationFlowHandler(ConfigSubentryFlow):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Handle creation of a new conversation agent."""
-        self.options = RECOMMENDED_CONVERSATION_OPTIONS.copy()
+        """Handle creation of a new subentry."""
+        if self._subentry_type == "ai_task_data":
+            self.options = RECOMMENDED_AI_TASK_OPTIONS.copy()
+        else:
+            self.options = RECOMMENDED_CONVERSATION_OPTIONS.copy()
         return await self.async_step_init(user_input)
 
     async def async_step_reconfigure(
@@ -184,19 +198,11 @@ class ConversationFlowHandler(ConfigSubentryFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Manage conversation agent configuration."""
+        """Manage subentry configuration."""
         if self._get_entry().state != ConfigEntryState.LOADED:
             return self.async_abort(reason="entry_not_loaded")
 
         options = self.options
-
-        hass_apis: list[SelectOptionDict] = [
-            SelectOptionDict(
-                label=api.name,
-                value=api.id,
-            )
-            for api in llm.async_get_apis(self.hass)
-        ]
 
         if user_input is not None:
             if not user_input.get(CONF_LLM_HASS_API):
@@ -222,29 +228,44 @@ class ConversationFlowHandler(ConfigSubentryFlow):
         step_schema: dict[vol.Marker, Any] = {}
 
         if self._is_new:
+            if self._subentry_type == "ai_task_data":
+                default_name = DEFAULT_AI_TASK_NAME
+            else:
+                default_name = DEFAULT_CONVERSATION_NAME
             step_schema[
-                vol.Required(CONF_NAME, default=DEFAULT_CONVERSATION_NAME)
+                vol.Required(CONF_NAME, default=default_name)
             ] = str
 
-        step_schema.update(
-            {
-                vol.Optional(
-                    CONF_PROMPT,
-                    description={
-                        "suggested_value": options.get(CONF_PROMPT),
-                    },
-                ): TemplateSelector(),
-                vol.Optional(
-                    CONF_LLM_HASS_API,
-                ): SelectSelector(
-                    SelectSelectorConfig(options=hass_apis, multiple=True)
-                ),
-                vol.Required(
-                    CONF_RECOMMENDED,
-                    default=options.get(CONF_RECOMMENDED, False),
-                ): bool,
-            }
-        )
+        if self._subentry_type == "conversation":
+            hass_apis: list[SelectOptionDict] = [
+                SelectOptionDict(
+                    label=api.name,
+                    value=api.id,
+                )
+                for api in llm.async_get_apis(self.hass)
+            ]
+            step_schema.update(
+                {
+                    vol.Optional(
+                        CONF_PROMPT,
+                        description={
+                            "suggested_value": options.get(CONF_PROMPT),
+                        },
+                    ): TemplateSelector(),
+                    vol.Optional(
+                        CONF_LLM_HASS_API,
+                    ): SelectSelector(
+                        SelectSelectorConfig(options=hass_apis, multiple=True)
+                    ),
+                }
+            )
+
+        step_schema[
+            vol.Required(
+                CONF_RECOMMENDED,
+                default=options.get(CONF_RECOMMENDED, False),
+            )
+        ] = bool
 
         return self.async_show_form(
             step_id="init",

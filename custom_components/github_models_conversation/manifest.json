@@ -3,7 +3,7 @@
   "name": "GitHub Models",
   "codeowners": ["@piitaya"],
   "config_flow": true,
-  "dependencies": ["conversation"],
+  "dependencies": ["ai_task", "conversation"],
   "after_dependencies": ["assist_pipeline", "intent"],
   "documentation": "https://github.com/piitaya/github-models-conversation",
   "integration_type": "service",

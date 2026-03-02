@@ -19,6 +19,35 @@
     }
   },
   "config_subentries": {
+    "ai_task_data": {
+      "abort": {
+        "entry_not_loaded": "L'intégration n'est pas chargée. Veuillez vous assurer qu'elle est configurée avant d'ajouter des agents.",
+        "reconfigure_successful": "La reconfiguration a été effectuée avec succès",
+        "cannot_connect": "Impossible de se connecter à l'API GitHub Models",
+        "unknown": "Erreur inattendue"
+      },
+      "entry_type": "Tâche IA",
+      "initiate_flow": {
+        "user": "Ajouter une tâche IA"
+      },
+      "step": {
+        "init": {
+          "data": {
+            "name": "Nom",
+            "recommended": "Paramètres de modèle recommandés"
+          }
+        },
+        "advanced": {
+          "title": "Paramètres avancés",
+          "data": {
+            "chat_model": "Modèle",
+            "temperature": "Température",
+            "top_p": "Top P",
+            "max_tokens": "Nombre maximum de tokens dans la réponse"
+          }
+        }
+      }
+    },
     "conversation": {
       "abort": {
         "entry_not_loaded": "L'intégration n'est pas chargée. Veuillez vous assurer qu'elle est configurée avant d'ajouter des agents.",

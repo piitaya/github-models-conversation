@@ -11,7 +11,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 
 from .const import GITHUB_MODELS_BASE_URL
 
-PLATFORMS = [Platform.CONVERSATION]
+PLATFORMS = [Platform.AI_TASK, Platform.CONVERSATION]
 
 type GitHubModelsConfigEntry = ConfigEntry[openai.AsyncOpenAI]
 
