@@ -22,6 +22,7 @@
     "conversation": {
       "abort": {
         "entry_not_loaded": "The integration is not loaded. Please ensure it is set up before adding agents.",
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
         "cannot_connect": "Failed to connect to GitHub Models API",
         "unknown": "Unexpected error"
       },
@@ -31,21 +32,23 @@
       },
       "step": {
         "init": {
-          "description": "Configure the conversation agent",
           "data": {
-            "chat_model": "Model",
-            "prompt": "Instructions",
-            "llm_hass_api": "Control Home Assistant",
-            "temperature": "Temperature",
-            "top_p": "Top P",
-            "max_tokens": "Maximum Tokens"
+            "name": "[%key:common::config_flow::data::name%]",
+            "prompt": "[%key:common::config_flow::data::prompt%]",
+            "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]",
+            "recommended": "Recommended model settings"
           },
           "data_description": {
-            "chat_model": "The AI model to use for conversations.",
-            "prompt": "Instruct how the LLM should respond. This can be a template.",
-            "temperature": "Controls randomness. Higher values make output more random.",
-            "top_p": "Alternative to temperature for controlling randomness.",
-            "max_tokens": "Maximum number of tokens in the response."
+            "prompt": "Instruct how the LLM should respond. This can be a template."
+          }
+        },
+        "advanced": {
+          "title": "Advanced settings",
+          "data": {
+            "chat_model": "[%key:common::generic::model%]",
+            "temperature": "Temperature",
+            "top_p": "Top P",
+            "max_tokens": "Maximum tokens to return in response"
           }
         }
       }

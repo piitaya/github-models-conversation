@@ -16,7 +16,7 @@ from homeassistant.config_entries import (
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
-from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API
+from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import llm
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -34,8 +34,10 @@ from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
     CONF_PROMPT,
+    CONF_RECOMMENDED,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    DEFAULT_CONVERSATION_NAME,
     DOMAIN,
     GITHUB_MODELS_BASE_URL,
     LOGGER,
@@ -96,6 +98,14 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title="GitHub Models",
                     data=user_input,
+                    subentries=[
+                        {
+                            "subentry_type": "conversation",
+                            "data": RECOMMENDED_CONVERSATION_OPTIONS,
+                            "title": DEFAULT_CONVERSATION_NAME,
+                            "unique_id": None,
+                        }
+                    ],
                 )
 
         return self.async_show_form(
@@ -178,25 +188,7 @@ class ConversationFlowHandler(ConfigSubentryFlow):
         if self._get_entry().state != ConfigEntryState.LOADED:
             return self.async_abort(reason="entry_not_loaded")
 
-        if user_input is not None:
-            if not user_input.get(CONF_LLM_HASS_API):
-                user_input.pop(CONF_LLM_HASS_API, None)
-
-            if self._is_new:
-                return self.async_create_entry(
-                    title=user_input[CONF_CHAT_MODEL],
-                    data=user_input,
-                )
-            return self.async_update_and_abort(
-                self._get_entry(),
-                self._get_reconfigure_subentry(),
-                data=user_input,
-            )
-
-        try:
-            models = await self._fetch_models()
-        except Exception:
-            return self.async_abort(reason="cannot_connect")
+        options = self.options
 
         hass_apis: list[SelectOptionDict] = [
             SelectOptionDict(
@@ -206,57 +198,120 @@ class ConversationFlowHandler(ConfigSubentryFlow):
             for api in llm.async_get_apis(self.hass)
         ]
 
+        if user_input is not None:
+            if not user_input.get(CONF_LLM_HASS_API):
+                user_input.pop(CONF_LLM_HASS_API, None)
+
+            if user_input[CONF_RECOMMENDED]:
+                if self._is_new:
+                    return self.async_create_entry(
+                        title=user_input.pop(CONF_NAME),
+                        data=user_input,
+                    )
+                return self.async_update_and_abort(
+                    self._get_entry(),
+                    self._get_reconfigure_subentry(),
+                    data=user_input,
+                )
+
+            options.update(user_input)
+            if CONF_LLM_HASS_API in options and CONF_LLM_HASS_API not in user_input:
+                options.pop(CONF_LLM_HASS_API)
+            return await self.async_step_advanced()
+
+        step_schema: dict[vol.Marker, Any] = {}
+
+        if self._is_new:
+            step_schema[
+                vol.Required(CONF_NAME, default=DEFAULT_CONVERSATION_NAME)
+            ] = str
+
+        step_schema.update(
+            {
+                vol.Optional(
+                    CONF_PROMPT,
+                    description={
+                        "suggested_value": options.get(CONF_PROMPT),
+                    },
+                ): TemplateSelector(),
+                vol.Optional(
+                    CONF_LLM_HASS_API,
+                ): SelectSelector(
+                    SelectSelectorConfig(options=hass_apis, multiple=True)
+                ),
+                vol.Required(
+                    CONF_RECOMMENDED,
+                    default=options.get(CONF_RECOMMENDED, False),
+                ): bool,
+            }
+        )
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_CHAT_MODEL,
-                        default=self.options.get(
-                            CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(step_schema),
+                options,
+            ),
+        )
+
+    async def async_step_advanced(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Manage advanced model settings."""
+        options = self.options
+
+        if user_input is not None:
+            options.update(user_input)
+
+            if self._is_new:
+                return self.async_create_entry(
+                    title=options.pop(CONF_NAME),
+                    data=options,
+                )
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                data=options,
+            )
+
+        try:
+            models = await self._fetch_models()
+        except Exception:
+            return self.async_abort(reason="cannot_connect")
+
+        return self.async_show_form(
+            step_id="advanced",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_CHAT_MODEL,
+                            default=RECOMMENDED_CHAT_MODEL,
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=models,
+                                mode="dropdown",
+                                sort=True,
+                            )
                         ),
-                    ): SelectSelector(
-                        SelectSelectorConfig(
-                            options=models,
-                            mode="dropdown",
-                            sort=True,
-                        )
-                    ),
-                    vol.Optional(
-                        CONF_PROMPT,
-                        description={
-                            "suggested_value": self.options.get(CONF_PROMPT),
-                        },
-                    ): TemplateSelector(),
-                    vol.Optional(
-                        CONF_LLM_HASS_API,
-                        default=self.options.get(
-                            CONF_LLM_HASS_API,
-                            RECOMMENDED_CONVERSATION_OPTIONS[CONF_LLM_HASS_API],
+                        vol.Required(
+                            CONF_TEMPERATURE,
+                            default=RECOMMENDED_TEMPERATURE,
+                        ): NumberSelector(
+                            NumberSelectorConfig(min=0.0, max=2.0, step=0.05),
                         ),
-                    ): SelectSelector(
-                        SelectSelectorConfig(options=hass_apis, multiple=True)
-                    ),
-                    vol.Required(
-                        CONF_TEMPERATURE,
-                        default=self.options.get(
-                            CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE
+                        vol.Required(
+                            CONF_TOP_P,
+                            default=RECOMMENDED_TOP_P,
+                        ): NumberSelector(
+                            NumberSelectorConfig(min=0.0, max=1.0, step=0.05),
                         ),
-                    ): NumberSelector(
-                        NumberSelectorConfig(min=0.0, max=2.0, step=0.05),
-                    ),
-                    vol.Required(
-                        CONF_TOP_P,
-                        default=self.options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
-                    ): NumberSelector(
-                        NumberSelectorConfig(min=0.0, max=1.0, step=0.05),
-                    ),
-                    vol.Required(
-                        CONF_MAX_TOKENS,
-                        default=self.options.get(
-                            CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS
-                        ),
-                    ): int,
-                }
+                        vol.Required(
+                            CONF_MAX_TOKENS,
+                            default=RECOMMENDED_MAX_TOKENS,
+                        ): int,
+                    }
+                ),
+                options,
             ),
         )

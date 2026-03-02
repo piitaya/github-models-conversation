@@ -26,7 +26,7 @@ from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import CONF_LLM_HASS_API, MATCH_ALL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import llm
+from homeassistant.helpers import device_registry as dr, llm
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.json import json_dumps
 
@@ -162,13 +162,13 @@ class GitHubModelsConversationEntity(conversation.ConversationEntity):
         self._entry = entry
         self._subentry = subentry
         self._attr_unique_id = subentry.subentry_id
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, subentry.subentry_id)},
-            "name": subentry.title,
-            "manufacturer": "GitHub",
-            "model": "GitHub Models",
-            "entry_type": "service",
-        }
+        self._attr_device_info = dr.DeviceInfo(
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
+            manufacturer="GitHub",
+            model=subentry.data.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
+            entry_type=dr.DeviceEntryType.SERVICE,
+        )
         if subentry.data.get(CONF_LLM_HASS_API):
             self._attr_supported_features = (
                 conversation.ConversationEntityFeature.CONTROL
