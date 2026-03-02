@@ -12,7 +12,7 @@ from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import CopilotConfigEntry
+from . import GitHubModelsConfigEntry
 from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
@@ -30,7 +30,7 @@ from .const import (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: CopilotConfigEntry,
+    config_entry: GitHubModelsConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up conversation entity."""
@@ -59,7 +59,7 @@ class GitHubModelsConversationEntity(conversation.ConversationEntity):
     _attr_has_entity_name = True
     _attr_name = None
 
-    def __init__(self, entry: CopilotConfigEntry) -> None:
+    def __init__(self, entry: GitHubModelsConfigEntry) -> None:
         """Initialize the entity."""
         self._entry = entry
         self._attr_unique_id = entry.entry_id
