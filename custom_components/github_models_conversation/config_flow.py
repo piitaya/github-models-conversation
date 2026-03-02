@@ -13,13 +13,15 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.const import CONF_API_KEY
+from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import llm
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     TemplateSelector,
@@ -159,19 +161,32 @@ class GitHubModelsOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
+            if not user_input.get(CONF_LLM_HASS_API):
+                user_input.pop(CONF_LLM_HASS_API, None)
+
             if user_input.get(CONF_RECOMMENDED):
                 return self.async_create_entry(
                     data={
                         CONF_RECOMMENDED: True,
+                        CONF_LLM_HASS_API: user_input.get(CONF_LLM_HASS_API),
                         CONF_CHAT_MODEL: RECOMMENDED_CHAT_MODEL,
                         CONF_MAX_TOKENS: RECOMMENDED_MAX_TOKENS,
                         CONF_TEMPERATURE: RECOMMENDED_TEMPERATURE,
                         CONF_TOP_P: RECOMMENDED_TOP_P,
                     },
                 )
+            self._user_input = user_input
             return await self.async_step_advanced()
 
         current = self._config_entry.options
+
+        hass_apis: list[SelectOptionDict] = [
+            SelectOptionDict(
+                label=api.name,
+                value=api.id,
+            )
+            for api in llm.async_get_apis(self.hass)
+        ]
 
         return self.async_show_form(
             step_id="init",
@@ -183,6 +198,14 @@ class GitHubModelsOptionsFlow(OptionsFlow):
                             "suggested_value": current.get(CONF_PROMPT),
                         },
                     ): TemplateSelector(),
+                    vol.Optional(
+                        CONF_LLM_HASS_API,
+                        default=current.get(CONF_LLM_HASS_API, []),
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=hass_apis, multiple=True
+                        )
+                    ),
                     vol.Required(
                         CONF_RECOMMENDED,
                         default=current.get(CONF_RECOMMENDED, True),
@@ -196,8 +219,11 @@ class GitHubModelsOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage advanced options."""
         if user_input is not None:
-            if CONF_PROMPT in self._config_entry.options:
-                user_input[CONF_PROMPT] = self._config_entry.options[CONF_PROMPT]
+            init_input = self._user_input
+            if CONF_PROMPT in init_input:
+                user_input[CONF_PROMPT] = init_input[CONF_PROMPT]
+            if CONF_LLM_HASS_API in init_input:
+                user_input[CONF_LLM_HASS_API] = init_input[CONF_LLM_HASS_API]
             return self.async_create_entry(data=user_input)
 
         models = await self._fetch_models()

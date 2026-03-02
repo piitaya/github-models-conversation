@@ -23,11 +23,12 @@
       "init": {
         "title": "Options GitHub Models",
         "data": {
-          "prompt": "Prompt système",
-          "recommended": "Utiliser les paramètres recommandés"
+          "prompt": "Instructions",
+          "llm_hass_api": "Contrôler Home Assistant",
+          "recommended": "Paramètres de modèle recommandés"
         },
         "data_description": {
-          "prompt": "Instructions pour l'IA. Supporte les templates Home Assistant."
+          "prompt": "Indiquez comment le LLM doit répondre. Cela peut être un template."
         }
       },
       "advanced": {

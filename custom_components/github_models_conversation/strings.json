@@ -23,11 +23,12 @@
       "init": {
         "title": "GitHub Models Options",
         "data": {
-          "prompt": "System Prompt",
-          "recommended": "Use recommended settings"
+          "prompt": "Instructions",
+          "llm_hass_api": "Control Home Assistant",
+          "recommended": "Recommended model settings"
         },
         "data_description": {
-          "prompt": "Instructions for the AI. Supports Home Assistant templates."
+          "prompt": "Instruct how the LLM should respond. This can be a template."
         }
       },
       "advanced": {
