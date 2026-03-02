@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GitHub Models",
+        "description": "Entrez votre jeton d'accès personnel GitHub. Il nécessite la permission **models:read** pour les jetons à portée fine. Les jetons classiques fonctionnent sans permission supplémentaire.",
+        "data": {
+          "api_key": "Jeton d'accès personnel GitHub"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à l'API GitHub Models",
+      "invalid_auth": "Jeton d'accès personnel GitHub invalide",
+      "unknown": "Erreur inattendue"
+    },
+    "abort": {
+      "already_configured": "Cette intégration est déjà configurée"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options GitHub Models",
+        "data": {
+          "prompt": "Prompt système",
+          "recommended": "Utiliser les paramètres recommandés"
+        },
+        "data_description": {
+          "prompt": "Instructions pour l'IA. Supporte les templates Home Assistant."
+        }
+      },
+      "advanced": {
+        "title": "Options avancées",
+        "data": {
+          "chat_model": "Modèle",
+          "temperature": "Température",
+          "top_p": "Top P",
+          "max_tokens": "Nombre maximum de tokens"
+        },
+        "data_description": {
+          "chat_model": "Le modèle d'IA à utiliser pour les conversations.",
+          "temperature": "Contrôle le caractère aléatoire. Des valeurs plus élevées rendent la sortie plus aléatoire.",
+          "top_p": "Alternative à la température pour contrôler le caractère aléatoire.",
+          "max_tokens": "Nombre maximum de tokens dans la réponse."
+        }
+      }
+    }
+  }
+}
