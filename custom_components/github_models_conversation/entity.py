@@ -34,6 +34,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, llm
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.json import json_dumps
+from homeassistant.util import slugify
 
 from . import GitHubModelsConfigEntry
 from .const import (
@@ -82,7 +83,7 @@ def _format_structured_output(
 ) -> JSONSchema:
     """Format the schema to be compatible with OpenAI API."""
     result: JSONSchema = {
-        "name": name,
+        "name": slugify(name),
         "strict": True,
     }
     result_schema = convert(
