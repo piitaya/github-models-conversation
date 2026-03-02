@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.json import json_loads
 
 from . import GitHubModelsConfigEntry
+from .const import LOGGER
 from .entity import GitHubModelsEntity
 
 
@@ -65,6 +66,9 @@ class GitHubModelsAITaskEntity(
         try:
             data = json_loads(text)
         except JSONDecodeError as err:
+            LOGGER.error(
+                "Failed to parse JSON response: %s. Response: %s", err, text
+            )
             raise HomeAssistantError(
                 "Error with GitHub Models structured response"
             ) from err

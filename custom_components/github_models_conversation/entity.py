@@ -56,7 +56,7 @@ MAX_TOOL_ITERATIONS = 10
 def _adjust_schema(schema: dict[str, Any]) -> None:
     """Adjust the schema to be compatible with OpenAI API."""
     if schema["type"] == "object":
-        schema["additionalProperties"] = False
+        schema.setdefault("additionalProperties", False)
 
         if "properties" not in schema:
             return
@@ -149,6 +149,7 @@ def _convert_content_to_chat_message(
             ]
         return param
 
+    LOGGER.warning("Could not convert message to Completions API: %s", content)
     return None
 
 

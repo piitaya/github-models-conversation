@@ -225,6 +225,12 @@ class ConversationFlowHandler(ConfigSubentryFlow):
                 options.pop(CONF_LLM_HASS_API)
             return await self.async_step_advanced()
 
+        if suggested_llm_apis := options.get(CONF_LLM_HASS_API):
+            valid_api_ids = {api.id for api in llm.async_get_apis(self.hass)}
+            options[CONF_LLM_HASS_API] = [
+                api for api in suggested_llm_apis if api in valid_api_ids
+            ]
+
         step_schema: dict[vol.Marker, Any] = {}
 
         if self._is_new:
