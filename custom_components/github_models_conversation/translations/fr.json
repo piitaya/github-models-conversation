@@ -18,32 +18,35 @@
       "already_configured": "Cette intégration est déjà configurée"
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Options GitHub Models",
-        "data": {
-          "prompt": "Instructions",
-          "llm_hass_api": "Contrôler Home Assistant",
-          "recommended": "Paramètres de modèle recommandés"
-        },
-        "data_description": {
-          "prompt": "Indiquez comment le LLM doit répondre. Cela peut être un template."
-        }
+  "config_subentries": {
+    "conversation": {
+      "abort": {
+        "entry_not_loaded": "L'intégration n'est pas chargée. Veuillez vous assurer qu'elle est configurée avant d'ajouter des agents.",
+        "cannot_connect": "Impossible de se connecter à l'API GitHub Models",
+        "unknown": "Erreur inattendue"
       },
-      "advanced": {
-        "title": "Options avancées",
-        "data": {
-          "chat_model": "Modèle",
-          "temperature": "Température",
-          "top_p": "Top P",
-          "max_tokens": "Nombre maximum de tokens"
-        },
-        "data_description": {
-          "chat_model": "Le modèle d'IA à utiliser pour les conversations.",
-          "temperature": "Contrôle le caractère aléatoire. Des valeurs plus élevées rendent la sortie plus aléatoire.",
-          "top_p": "Alternative à la température pour contrôler le caractère aléatoire.",
-          "max_tokens": "Nombre maximum de tokens dans la réponse."
+      "entry_type": "Agent de conversation",
+      "initiate_flow": {
+        "user": "Ajouter un agent de conversation"
+      },
+      "step": {
+        "init": {
+          "description": "Configurer l'agent de conversation",
+          "data": {
+            "chat_model": "Modèle",
+            "prompt": "Instructions",
+            "llm_hass_api": "Contrôler Home Assistant",
+            "temperature": "Température",
+            "top_p": "Top P",
+            "max_tokens": "Nombre maximum de tokens"
+          },
+          "data_description": {
+            "chat_model": "Le modèle d'IA à utiliser pour les conversations.",
+            "prompt": "Indiquez comment le LLM doit répondre. Cela peut être un template.",
+            "temperature": "Contrôle le caractère aléatoire. Des valeurs plus élevées rendent la sortie plus aléatoire.",
+            "top_p": "Alternative à la température pour contrôler le caractère aléatoire.",
+            "max_tokens": "Nombre maximum de tokens dans la réponse."
+          }
         }
       }
     }

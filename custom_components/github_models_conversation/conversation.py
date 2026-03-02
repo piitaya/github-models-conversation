@@ -22,6 +22,7 @@ from openai.types.shared_params import FunctionDefinition
 from voluptuous_openapi import convert
 
 from homeassistant.components import conversation
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import CONF_LLM_HASS_API, MATCH_ALL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -52,8 +53,14 @@ async def async_setup_entry(
     config_entry: GitHubModelsConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up conversation entity."""
-    async_add_entities([GitHubModelsConversationEntity(config_entry)])
+    """Set up conversation entities."""
+    for subentry_id, subentry in config_entry.subentries.items():
+        if subentry.subentry_type != "conversation":
+            continue
+        async_add_entities(
+            [GitHubModelsConversationEntity(config_entry, subentry)],
+            config_subentry_id=subentry_id,
+        )
 
 
 def _format_tool(
@@ -148,18 +155,21 @@ class GitHubModelsConversationEntity(conversation.ConversationEntity):
     _attr_name = None
     _attr_supports_streaming = True
 
-    def __init__(self, entry: GitHubModelsConfigEntry) -> None:
+    def __init__(
+        self, entry: GitHubModelsConfigEntry, subentry: ConfigSubentry
+    ) -> None:
         """Initialize the entity."""
         self._entry = entry
-        self._attr_unique_id = entry.entry_id
+        self._subentry = subentry
+        self._attr_unique_id = subentry.subentry_id
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": entry.title,
+            "identifiers": {(DOMAIN, subentry.subentry_id)},
+            "name": subentry.title,
             "manufacturer": "GitHub",
             "model": "GitHub Models",
             "entry_type": "service",
         }
-        if entry.options.get(CONF_LLM_HASS_API):
+        if subentry.data.get(CONF_LLM_HASS_API):
             self._attr_supported_features = (
                 conversation.ConversationEntityFeature.CONTROL
             )
@@ -169,23 +179,13 @@ class GitHubModelsConversationEntity(conversation.ConversationEntity):
         """Return supported languages (all)."""
         return MATCH_ALL
 
-    async def async_added_to_hass(self) -> None:
-        """Register as conversation agent when added to HA."""
-        await super().async_added_to_hass()
-        conversation.async_set_agent(self.hass, self._entry, self)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Unregister as conversation agent when removed."""
-        conversation.async_unset_agent(self.hass, self._entry)
-        await super().async_will_remove_from_hass()
-
     async def _async_handle_message(
         self,
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
         """Process a user message and return the AI response."""
-        options = self._entry.options
+        options = self._subentry.data
 
         try:
             await chat_log.async_provide_llm_data(

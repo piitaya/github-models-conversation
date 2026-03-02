@@ -8,10 +8,13 @@ import openai
 import voluptuous as vol
 
 from homeassistant.config_entries import (
+    SOURCE_USER,
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
 )
 from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API
 from homeassistant.core import HomeAssistant, callback
@@ -31,25 +34,17 @@ from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
     CONF_PROMPT,
-    CONF_RECOMMENDED,
     CONF_TEMPERATURE,
     CONF_TOP_P,
     DOMAIN,
     GITHUB_MODELS_BASE_URL,
     LOGGER,
     RECOMMENDED_CHAT_MODEL,
+    RECOMMENDED_CONVERSATION_OPTIONS,
     RECOMMENDED_MAX_TOKENS,
     RECOMMENDED_TEMPERATURE,
     RECOMMENDED_TOP_P,
 )
-
-RECOMMENDED_OPTIONS = {
-    CONF_RECOMMENDED: True,
-    CONF_CHAT_MODEL: RECOMMENDED_CHAT_MODEL,
-    CONF_MAX_TOKENS: RECOMMENDED_MAX_TOKENS,
-    CONF_TEMPERATURE: RECOMMENDED_TEMPERATURE,
-    CONF_TOP_P: RECOMMENDED_TOP_P,
-}
 
 
 async def validate_api_key(hass: HomeAssistant, api_key: str) -> None:
@@ -72,13 +67,13 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    @staticmethod
+    @classmethod
     @callback
-    def async_get_options_flow(
-        config_entry: ConfigEntry,
-    ) -> GitHubModelsOptionsFlow:
-        """Get the options flow for this handler."""
-        return GitHubModelsOptionsFlow(config_entry)
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Return subentries supported by this handler."""
+        return {"conversation": ConversationFlowHandler}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -87,6 +82,7 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            self._async_abort_entries_match(user_input)
             try:
                 await validate_api_key(self.hass, user_input[CONF_API_KEY])
             except openai.AuthenticationError:
@@ -100,7 +96,6 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title="GitHub Models",
                     data=user_input,
-                    options=RECOMMENDED_OPTIONS,
                 )
 
         return self.async_show_form(
@@ -114,22 +109,28 @@ class GitHubModelsConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class GitHubModelsOptionsFlow(OptionsFlow):
-    """Handle options flow for GitHub Models Conversation."""
+class ConversationFlowHandler(ConfigSubentryFlow):
+    """Handle subentry flow for conversation agents."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        self._config_entry = config_entry
+    def __init__(self) -> None:
+        """Initialize the subentry flow."""
+        self.options: dict[str, Any] = {}
         self._models: list[str] | None = None
+
+    @property
+    def _is_new(self) -> bool:
+        """Return if this is a new subentry."""
+        return self.source == SOURCE_USER
 
     async def _fetch_models(self) -> list[str]:
         """Fetch available models from GitHub Models catalog API."""
         if self._models is not None:
             return self._models
 
+        entry = self._get_entry()
         session = async_get_clientsession(self.hass)
         headers = {
-            "Authorization": f"Bearer {self._config_entry.data[CONF_API_KEY]}",
+            "Authorization": f"Bearer {entry.data[CONF_API_KEY]}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -156,29 +157,46 @@ class GitHubModelsOptionsFlow(OptionsFlow):
 
         return self._models
 
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle creation of a new conversation agent."""
+        self.options = RECOMMENDED_CONVERSATION_OPTIONS.copy()
+        return await self.async_step_init(user_input)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle reconfiguration of a conversation agent."""
+        self.options = dict(self._get_reconfigure_subentry().data)
+        return await self.async_step_init(user_input)
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Manage the options."""
+    ) -> SubentryFlowResult:
+        """Manage conversation agent configuration."""
+        if self._get_entry().state != ConfigEntryState.LOADED:
+            return self.async_abort(reason="entry_not_loaded")
+
         if user_input is not None:
             if not user_input.get(CONF_LLM_HASS_API):
                 user_input.pop(CONF_LLM_HASS_API, None)
 
-            if user_input.get(CONF_RECOMMENDED):
+            if self._is_new:
                 return self.async_create_entry(
-                    data={
-                        CONF_RECOMMENDED: True,
-                        CONF_LLM_HASS_API: user_input.get(CONF_LLM_HASS_API),
-                        CONF_CHAT_MODEL: RECOMMENDED_CHAT_MODEL,
-                        CONF_MAX_TOKENS: RECOMMENDED_MAX_TOKENS,
-                        CONF_TEMPERATURE: RECOMMENDED_TEMPERATURE,
-                        CONF_TOP_P: RECOMMENDED_TOP_P,
-                    },
+                    title=user_input[CONF_CHAT_MODEL],
+                    data=user_input,
                 )
-            self._user_input = user_input
-            return await self.async_step_advanced()
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                data=user_input,
+            )
 
-        current = self._config_entry.options
+        try:
+            models = await self._fetch_models()
+        except Exception:
+            return self.async_abort(reason="cannot_connect")
 
         hass_apis: list[SelectOptionDict] = [
             SelectOptionDict(
@@ -192,50 +210,11 @@ class GitHubModelsOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        CONF_PROMPT,
-                        description={
-                            "suggested_value": current.get(CONF_PROMPT),
-                        },
-                    ): TemplateSelector(),
-                    vol.Optional(
-                        CONF_LLM_HASS_API,
-                        default=current.get(CONF_LLM_HASS_API, []),
-                    ): SelectSelector(
-                        SelectSelectorConfig(
-                            options=hass_apis, multiple=True
-                        )
-                    ),
-                    vol.Required(
-                        CONF_RECOMMENDED,
-                        default=current.get(CONF_RECOMMENDED, True),
-                    ): bool,
-                }
-            ),
-        )
-
-    async def async_step_advanced(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Manage advanced options."""
-        if user_input is not None:
-            init_input = self._user_input
-            if CONF_PROMPT in init_input:
-                user_input[CONF_PROMPT] = init_input[CONF_PROMPT]
-            if CONF_LLM_HASS_API in init_input:
-                user_input[CONF_LLM_HASS_API] = init_input[CONF_LLM_HASS_API]
-            return self.async_create_entry(data=user_input)
-
-        models = await self._fetch_models()
-        current = self._config_entry.options
-
-        return self.async_show_form(
-            step_id="advanced",
-            data_schema=vol.Schema(
-                {
                     vol.Required(
                         CONF_CHAT_MODEL,
-                        default=current.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
+                        default=self.options.get(
+                            CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL
+                        ),
                     ): SelectSelector(
                         SelectSelectorConfig(
                             options=models,
@@ -243,9 +222,24 @@ class GitHubModelsOptionsFlow(OptionsFlow):
                             sort=True,
                         )
                     ),
+                    vol.Optional(
+                        CONF_PROMPT,
+                        description={
+                            "suggested_value": self.options.get(CONF_PROMPT),
+                        },
+                    ): TemplateSelector(),
+                    vol.Optional(
+                        CONF_LLM_HASS_API,
+                        default=self.options.get(
+                            CONF_LLM_HASS_API,
+                            RECOMMENDED_CONVERSATION_OPTIONS[CONF_LLM_HASS_API],
+                        ),
+                    ): SelectSelector(
+                        SelectSelectorConfig(options=hass_apis, multiple=True)
+                    ),
                     vol.Required(
                         CONF_TEMPERATURE,
-                        default=current.get(
+                        default=self.options.get(
                             CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE
                         ),
                     ): NumberSelector(
@@ -253,13 +247,13 @@ class GitHubModelsOptionsFlow(OptionsFlow):
                     ),
                     vol.Required(
                         CONF_TOP_P,
-                        default=current.get(CONF_TOP_P, RECOMMENDED_TOP_P),
+                        default=self.options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
                     ): NumberSelector(
                         NumberSelectorConfig(min=0.0, max=1.0, step=0.05),
                     ),
                     vol.Required(
                         CONF_MAX_TOKENS,
-                        default=current.get(
+                        default=self.options.get(
                             CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS
                         ),
                     ): int,
